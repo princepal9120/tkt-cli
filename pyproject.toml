@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tkt-cli"
+version = "0.1.0"
+description = "TikTok trend discovery from your terminal"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Prince Pal" }]
+dependencies = [
+  "typer>=0.12.0",
+  "rich>=13.7.0",
+  "TikTokApi>=6.5.0",
+  "playwright>=1.40.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0", "pytest-mock>=3.12.0"]
+
+[project.scripts]
+tkt = "tkt_cli.main:app"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
