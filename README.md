@@ -38,6 +38,19 @@ tkt hashtag aitools --count 50
 tkt search "ai agents"
 ```
 
+By default, commands use `--mode auto`: fast static guest fetch first, then browser fallback. If you want Bird-style speed only, use:
+
+```bash
+tkt hashtag aitools --mode fast --count 20
+tkt user tiktok --mode fast --format json
+```
+
+Use browser mode when fast mode misses page data:
+
+```bash
+tkt hashtag aitools --mode browser
+```
+
 If TikTok returns empty responses or blocks guest sessions, add your own browser token:
 
 1. Open TikTok in your browser.
@@ -93,6 +106,7 @@ This CLI does not bypass TikTok restrictions. It uses user-provided browser auth
 
 ## Roadmap
 
+- Tiny disk cache for repeated fast-mode research.
 - Trend scoring: velocity, engagement ratio, freshness, repeated hooks.
 - Region-aware source tuning.
 - `instagram` adapter with the same CLI shape.

@@ -15,6 +15,7 @@ from rich.table import Table
 from . import __version__
 from .config import TktConfig, clear_config, load_config, load_proxies, save_config
 from .core.client import TikTokBlockedError, TikTokTrendClient, VideoResult
+from .core.fast_client import FastTikTokClient
 
 app = typer.Typer(help="TikTok trend discovery from your terminal.", no_args_is_help=True)
 console = Console()
@@ -23,6 +24,12 @@ console = Console()
 class OutputFormat(str, Enum):
     table = "table"
     json = "json"
+
+
+class FetchMode(str, Enum):
+    auto = "auto"
+    fast = "fast"
+    browser = "browser"
 
 
 class ExportKind(str, Enum):
@@ -91,9 +98,10 @@ def trending(
     count: int = typer.Option(20, "--count", "-n", min=1, max=200),
     output: OutputFormat = typer.Option(OutputFormat.table, "--format", help="Output format."),
     proxy: str | None = typer.Option(None, "--proxy", help="Proxy URL. If omitted, first ~/.tkt/proxies.txt entry is used when present."),
+    mode: FetchMode = typer.Option(FetchMode.auto, "--mode", help="auto tries fast static fetch first, then browser fallback."),
 ) -> None:
     """Fetch trending TikTok videos."""
-    _run_and_render(lambda client, px: client.get_trending(region=region, count=count, proxy=px), output, proxy)
+    _run_and_render(lambda client, px: client.get_trending(region=region, count=count, proxy=px), output, proxy, mode)
 
 
 @app.command()
@@ -102,9 +110,10 @@ def hashtag(
     count: int = typer.Option(20, "--count", "-n", min=1, max=200),
     output: OutputFormat = typer.Option(OutputFormat.table, "--format"),
     proxy: str | None = typer.Option(None, "--proxy"),
+    mode: FetchMode = typer.Option(FetchMode.auto, "--mode"),
 ) -> None:
     """Fetch recent/top videos for a hashtag."""
-    _run_and_render(lambda client, px: client.get_hashtag(tag, count=count, proxy=px), output, proxy)
+    _run_and_render(lambda client, px: client.get_hashtag(tag, count=count, proxy=px), output, proxy, mode)
 
 
 @app.command()
@@ -113,9 +122,10 @@ def user(
     count: int = typer.Option(20, "--count", "-n", min=1, max=200),
     output: OutputFormat = typer.Option(OutputFormat.table, "--format"),
     proxy: str | None = typer.Option(None, "--proxy"),
+    mode: FetchMode = typer.Option(FetchMode.auto, "--mode"),
 ) -> None:
     """Fetch videos for a TikTok user."""
-    _run_and_render(lambda client, px: client.get_user(username, count=count, proxy=px), output, proxy)
+    _run_and_render(lambda client, px: client.get_user(username, count=count, proxy=px), output, proxy, mode)
 
 
 @app.command("search")
@@ -124,9 +134,10 @@ def search_cmd(
     count: int = typer.Option(20, "--count", "-n", min=1, max=200),
     output: OutputFormat = typer.Option(OutputFormat.table, "--format"),
     proxy: str | None = typer.Option(None, "--proxy"),
+    mode: FetchMode = typer.Option(FetchMode.auto, "--mode"),
 ) -> None:
     """Search TikTok videos."""
-    _run_and_render(lambda client, px: client.search(query, count=count, proxy=px), output, proxy)
+    _run_and_render(lambda client, px: client.search(query, count=count, proxy=px), output, proxy, mode)
 
 
 @app.command()
@@ -138,9 +149,10 @@ def export(
     region: str | None = typer.Option(None, "--region"),
     export_format: ExportFormat = typer.Option(ExportFormat.json, "--format"),
     proxy: str | None = typer.Option(None, "--proxy"),
+    mode: FetchMode = typer.Option(FetchMode.auto, "--mode"),
 ) -> None:
     """Export TikTok trend data to JSON or CSV."""
-    async def fetch(client: TikTokTrendClient, px: str | None) -> list[VideoResult]:
+    async def fetch(client: TikTokTrendClient | FastTikTokClient, px: str | None) -> list[VideoResult]:
         if kind == ExportKind.trending:
             return await client.get_trending(region=region, count=count, proxy=px)
         if not value:
@@ -151,7 +163,7 @@ def export(
             return await client.get_user(value, count=count, proxy=px)
         return await client.search(value, count=count, proxy=px)
 
-    results = _run(fetch, proxy)
+    results = _run(fetch, proxy, mode)
     out.parent.mkdir(parents=True, exist_ok=True)
     rows = [item.to_dict() for item in results]
     if export_format == ExportFormat.json:
@@ -181,20 +193,32 @@ def _client() -> TikTokTrendClient:
     return TikTokTrendClient(ms_token=config.ms_token)
 
 
-def _run(fetcher: Callable[[TikTokTrendClient, str | None], object], proxy: str | None) -> list[VideoResult]:
+def _run(fetcher: Callable[[TikTokTrendClient | FastTikTokClient, str | None], object], proxy: str | None, mode: FetchMode) -> list[VideoResult]:
+    async def run_fetch() -> list[VideoResult]:
+        resolved_proxy = _resolve_proxy(proxy)
+        if mode == FetchMode.fast:
+            return await fetcher(FastTikTokClient(), resolved_proxy)  # type: ignore[return-value]
+        if mode == FetchMode.browser:
+            return await fetcher(_client(), resolved_proxy)  # type: ignore[return-value]
+        try:
+            return await fetcher(FastTikTokClient(), resolved_proxy)  # type: ignore[return-value]
+        except Exception as fast_error:  # noqa: BLE001
+            console.print(f"[yellow]Fast mode missed: {fast_error}[/yellow]")
+            console.print("[yellow]Falling back to browser mode.[/yellow]")
+            return await fetcher(_client(), resolved_proxy)  # type: ignore[return-value]
+
     try:
-        result = asyncio.run(fetcher(_client(), _resolve_proxy(proxy)))
-        return result  # type: ignore[return-value]
+        return asyncio.run(run_fetch())
     except TikTokBlockedError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(2) from exc
-    except RuntimeError as exc:
+    except Exception as exc:  # noqa: BLE001
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(1) from exc
 
 
-def _run_and_render(fetcher: Callable[[TikTokTrendClient, str | None], object], output: OutputFormat, proxy: str | None) -> None:
-    results = _run(fetcher, proxy)
+def _run_and_render(fetcher: Callable[[TikTokTrendClient | FastTikTokClient, str | None], object], output: OutputFormat, proxy: str | None, mode: FetchMode) -> None:
+    results = _run(fetcher, proxy, mode)
     if output == OutputFormat.json:
         console.print_json(json.dumps([item.to_dict() for item in results], ensure_ascii=False))
     else:
