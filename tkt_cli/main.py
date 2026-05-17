@@ -74,7 +74,8 @@ def status() -> None:
         if config.region:
             console.print(f"Default region: {config.region}")
     else:
-        console.print("[yellow]Not authenticated[/yellow]. Run `tkt login`.")
+        console.print("[yellow]Guest mode[/yellow]. Public TikTok requests will be attempted without login.")
+        console.print("Run `tkt login` only if TikTok blocks guest requests or you need better reliability.")
 
 
 @app.command()

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import random
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Iterable
+from typing import Any, Awaitable, Callable
 
 try:  # TikTokApi changes exception paths between versions.
     from TikTokApi import TikTokApi
@@ -87,12 +87,11 @@ class TikTokTrendClient:
     async def _with_api(self, proxy: str | None, fn: Callable[[Any], Awaitable[list[dict[str, Any]]]]) -> list[VideoResult]:
         if TikTokApi is None:
             raise RuntimeError("TikTokApi is not installed. Run `pip install -e .[dev]` or install tkt-cli dependencies.")
-        if not self.ms_token:
-            raise RuntimeError("Missing ms_token. Run `tkt login` first.")
-
         async def call() -> list[dict[str, Any]]:
             async with TikTokApi() as api:  # type: ignore[misc]
-                session_kwargs: dict[str, Any] = {"ms_tokens": [self.ms_token], "num_sessions": 1, "sleep_after": 3}
+                session_kwargs: dict[str, Any] = {"num_sessions": 1, "sleep_after": 3}
+                if self.ms_token:
+                    session_kwargs["ms_tokens"] = [self.ms_token]
                 if proxy:
                     session_kwargs["proxy"] = proxy
                 await api.create_sessions(**session_kwargs)
@@ -107,7 +106,7 @@ class TikTokTrendClient:
             try:
                 return await fn()
             except EmptyResponseException as exc:
-                raise TikTokBlockedError("TikTok returned an empty response. Your session may be blocked. Try a fresh ms_token or proxy.") from exc
+                raise TikTokBlockedError("TikTok returned an empty response. Guest mode may be blocked. Try `tkt login` with ms_token, a fresh token, or a proxy.") from exc
             except Exception as exc:  # noqa: BLE001
                 last_error = exc
                 if attempt >= self.retries:

@@ -21,7 +21,7 @@ def test_status_without_config(monkeypatch, tmp_path):
     monkeypatch.setattr(main, "load_config", lambda: config.load_config(path))
     result = runner.invoke(app, ["status"])
     assert result.exit_code == 0
-    assert "Not authenticated" in result.output
+    assert "Guest mode" in result.output
 
 
 def test_render_table_smoke():
