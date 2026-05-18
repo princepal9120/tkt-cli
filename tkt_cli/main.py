@@ -16,6 +16,7 @@ from . import __version__
 from .config import TktConfig, clear_config, load_config, load_proxies, save_config
 from .core.client import TikTokBlockedError, TikTokTrendClient, VideoResult
 from .core.fast_client import FastTikTokClient
+from .market import MarketInsight, analyze_market
 
 app = typer.Typer(help="TikTok trend discovery from your terminal.", no_args_is_help=True)
 console = Console()
@@ -42,6 +43,12 @@ class ExportKind(str, Enum):
 class ExportFormat(str, Enum):
     json = "json"
     csv = "csv"
+
+
+class MarketSource(str, Enum):
+    search = "search"
+    hashtag = "hashtag"
+    trending = "trending"
 
 
 def version_callback(value: bool) -> None:
@@ -178,6 +185,32 @@ def export(
     console.print(f"[green]Exported {len(rows)} rows to {out}[/green]")
 
 
+@app.command()
+def market(
+    query: str = typer.Argument(..., help="Niche, product category, or customer pain to analyze."),
+    source: MarketSource = typer.Option(MarketSource.search, "--source", help="Research source: search, hashtag, or trending."),
+    count: int = typer.Option(30, "--count", "-n", min=5, max=200),
+    region: str | None = typer.Option(None, "--region", help="Region hint for trending source, for example IN or US."),
+    output: OutputFormat = typer.Option(OutputFormat.table, "--format"),
+    proxy: str | None = typer.Option(None, "--proxy"),
+    mode: FetchMode = typer.Option(FetchMode.auto, "--mode"),
+) -> None:
+    """Analyze TikTok trends and turn them into indie-hacker marketing actions."""
+    async def fetch(client: TikTokTrendClient | FastTikTokClient, px: str | None) -> list[VideoResult]:
+        if source == MarketSource.hashtag:
+            return await client.get_hashtag(query, count=count, proxy=px)
+        if source == MarketSource.trending:
+            return await client.get_trending(region=region, count=count, proxy=px)
+        return await client.search(query, count=count, proxy=px)
+
+    results = _run(fetch, proxy, mode)
+    insight = analyze_market(results, query=query, source=source.value)
+    if output == OutputFormat.json:
+        console.print_json(json.dumps(insight.to_dict(), ensure_ascii=False))
+    else:
+        render_market(insight)
+
+
 def _resolve_proxy(proxy: str | None) -> str | None:
     if proxy:
         return proxy
@@ -245,6 +278,51 @@ def render_table(results: list[VideoResult]) -> None:
             item.url or "",
         )
     console.print(table)
+
+
+def render_market(insight: MarketInsight) -> None:
+    summary = Table(title=f"Market intelligence: {insight.query}", show_header=False)
+    summary.add_column("Metric", style="bold")
+    summary.add_column("Value")
+    summary.add_row("Source", insight.source)
+    summary.add_row("Videos analyzed", str(insight.videos_analyzed))
+    summary.add_row("Total views", _fmt(insight.total_views))
+    summary.add_row("Median views", _fmt(insight.median_views))
+    summary.add_row("Median engagement", f"{insight.median_engagement_rate:.2%}")
+    summary.add_row("Opportunity score", f"{insight.opportunity_score}/100")
+    summary.add_row("Decision", insight.decision)
+    console.print(summary)
+
+    signals = Table(title="Signals")
+    signals.add_column("Keywords")
+    signals.add_column("Hashtags")
+    signals.add_column("Hooks")
+    for idx in range(max(len(insight.top_keywords), len(insight.top_hashtags), len(insight.hook_formats), 1)):
+        keyword = _pair(insight.top_keywords, idx)
+        hashtag = _pair(insight.top_hashtags, idx, prefix="#")
+        hook = _pair(insight.hook_formats, idx)
+        signals.add_row(keyword, hashtag, hook)
+    console.print(signals)
+
+    _render_list("Content angles", insight.content_angles)
+    _render_list("Product opportunities", insight.product_opportunities)
+    _render_list("Validation plan", insight.validation_plan)
+
+
+def _render_list(title: str, rows: list[str]) -> None:
+    table = Table(title=title, show_header=False)
+    table.add_column("#", justify="right")
+    table.add_column("Action")
+    for idx, row in enumerate(rows, start=1):
+        table.add_row(str(idx), row)
+    console.print(table)
+
+
+def _pair(rows: list[tuple[str, int]], idx: int, prefix: str = "") -> str:
+    if idx >= len(rows):
+        return ""
+    label, count = rows[idx]
+    return f"{prefix}{label} ({count})"
 
 
 def _fmt(value: int | None) -> str:

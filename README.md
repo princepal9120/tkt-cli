@@ -86,6 +86,31 @@ tkt search "ai agents" --count 30
 
 tkt export trending --out data/trending.json --format json --count 100
 tkt export hashtag aitools --out data/aitools.csv --format csv --count 100
+
+# Indie-hacker marketing intelligence
+tkt market "ai marketing tools" --count 50
+tkt market aitools --source hashtag --format json
+```
+
+## Indie-hacker marketing intelligence
+
+Use `tkt market` when you do not just want trends. You want a decision.
+
+It analyzes TikTok videos for:
+
+- opportunity score from views, engagement, pain words, buyer intent, and repeatable hooks
+- decision: build now, create content and validate, watchlist, or ignore
+- top keywords, hashtags, and hook formats
+- content angles for founders and creators
+- product opportunities like lead magnets, micro-tools, and paid workflows
+- a simple validation plan that focuses on saves, comments, profile clicks, and waitlist joins
+
+Examples:
+
+```bash
+tkt market "solo founder CRM" --source search --count 30
+tkt market "aitools" --source hashtag --count 50
+tkt market "founder pain" --format json > market-report.json
 ```
 
 ## Proxy support

@@ -39,3 +39,32 @@ def test_render_table_smoke():
             raw={},
         )
     ])
+
+
+def test_market_command_json(monkeypatch):
+    import tkt_cli.main as main
+
+    monkeypatch.setattr(
+        main,
+        "_run",
+        lambda fetcher, proxy, mode: [
+            VideoResult(
+                id="1",
+                desc="How to automate content marketing for indie founders #saas",
+                author="creator",
+                create_time=None,
+                play_count=1000,
+                like_count=120,
+                comment_count=15,
+                share_count=5,
+                url="https://example.com",
+                raw={},
+            )
+        ],
+    )
+
+    result = runner.invoke(app, ["market", "ai marketing", "--format", "json"])
+
+    assert result.exit_code == 0
+    assert '"query": "ai marketing"' in result.output
+    assert '"opportunity_score"' in result.output
