@@ -15,12 +15,12 @@ jobs:
           - os: macos-latest
             target: bun-darwin-arm64
             asset: tkt-darwin-arm64
-          - os: macos-13
-            target: bun-darwin-x64
-            asset: tkt-darwin-x64
           - os: ubuntu-latest
             target: bun-linux-x64
             asset: tkt-linux-x64
+          - os: windows-latest
+            target: bun-windows-x64
+            asset: tkt-windows-x64.exe
 
     steps:
       - uses: actions/checkout@v4
