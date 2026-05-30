@@ -1,25 +1,33 @@
-# Python
-__pycache__/
-*.py[cod]
-*.egg-info/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.coverage
-htmlcov/
+# Dependencies
+node_modules/
+bun.lockb
+
+# Build output
 dist/
 build/
+out/
+tkt
 
-# Virtualenvs
-.venv/
-venv/
+# TypeScript
+*.tsbuildinfo
 
-# Local secrets/config
+# Environment
 .env
-.env.*
-.tkt/
+.env.local
+.env.*.local
 
-# OS/editor
+# Logs
+*.log
+npm-debug.log*
+bun-debug.log*
+
+# OS
 .DS_Store
+Thumbs.db
+
+# Editor
 .vscode/
 .idea/
+*.swp
+*.swo
+.omc

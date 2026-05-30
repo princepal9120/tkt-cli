@@ -1,138 +1,159 @@
 # tkt-cli
 
-`rdt-cli` style TikTok trend discovery from the terminal.
+TikTok in your terminal — browse feeds, search, and analyze trends. Built with [Bun](https://bun.sh) for single-binary distribution.
 
-`tkt-cli` is intentionally transparent: it tries public guest access first. If TikTok blocks or rate-limits guest requests, you can optionally provide your own TikTok browser `ms_token`; the CLI stores it locally in `~/.tkt/config.json`, then uses `TikTokApi` + Playwright to fetch trending videos, hashtags, users, and search results.
-
-## Public CLI method
-
-`tkt-cli` follows the same practical pattern as small public CLIs like `rdt-cli`, `twitter-cli`, and BirdCrawl-style tools:
-
+Follows the same philosophy as `rdt-cli`, `twitter-cli`, and similar public CLIs:
 - one obvious binary: `tkt`
-- terminal-first workflows before dashboards
-- guest mode first, local browser-cookie auth only when needed
+- guest mode first — most commands work without login
 - structured exports for agents and automations
-- table output for humans, JSON/CSV output for pipelines
-- thin adapters around unstable platform APIs
-- explicit warnings when platforms block or return empty data
+- table output for humans, `--json` for pipelines
+- thin adapter around TikTok's web API with Chrome fingerprint + jitter
 
-The goal is not to bypass TikTok. The goal is to make legitimate trend research faster and scriptable.
+## Install
 
-## Install locally
+### Download binary (no runtime needed)
 
 ```bash
+# macOS Apple Silicon
+curl -Lo tkt https://github.com/princepal9120/tkt-cli/releases/latest/download/tkt-darwin-arm64
+chmod +x tkt && sudo mv tkt /usr/local/bin/
+
+# macOS Intel
+curl -Lo tkt https://github.com/yourname/tkt-cli/releases/latest/download/tkt-darwin-x64
+chmod +x tkt && sudo mv tkt /usr/local/bin/
+
+# Linux x64
+curl -Lo tkt https://github.com/yourname/tkt-cli/releases/latest/download/tkt-linux-x64
+chmod +x tkt && sudo mv tkt /usr/local/bin/
+```
+
+### From source (requires [Bun](https://bun.sh))
+
+```bash
+git clone https://github.com/yourname/tkt-cli
 cd tkt-cli
-python -m venv .venv
-source .venv/bin/activate
-pip install -e '.[dev]'
-playwright install chromium
+bun install
+bun run dev -- --help        # run without compiling
+bun run build                # compile → ./tkt binary
 ```
 
-## Guest mode and optional auth
+## Auth
 
-You can try public TikTok data without logging in:
-
-```bash
-tkt trending --region IN --count 20
-tkt hashtag aitools --count 50
-tkt search "ai agents"
-```
-
-By default, commands use `--mode auto`: fast static guest fetch first, then browser fallback. If you want Bird-style speed only, use:
+Most commands work in guest mode. Login for feed, like, and save.
 
 ```bash
-tkt hashtag aitools --mode fast --count 20
-tkt user tiktok --mode fast --format json
-```
-
-Use browser mode when fast mode misses page data:
-
-```bash
-tkt hashtag aitools --mode browser
-```
-
-If TikTok returns empty responses or blocks guest sessions, add your own browser token:
-
-1. Open TikTok in your browser.
-2. Inspect cookies for `tiktok.com`.
-3. Copy the `ms_token` value.
-4. Run:
-
-```bash
-tkt login
-```
-
-Check status:
-
-```bash
-tkt status
-```
-
-Logout:
-
-```bash
+tkt login                    # auto-extract cookies from Chrome/Firefox
+tkt login --ms-token <val>   # or paste ms_token manually
+tkt status                   # check auth state
+tkt whoami                   # show your profile
 tkt logout
 ```
 
-## Commands
+## Browse
 
 ```bash
-tkt trending --region IN --count 20
-tkt trending --region US --count 20 --format json
-
-tkt hashtag aitools --count 50
-tkt user mrbeast --count 20
-tkt search "ai agents" --count 30
-
-tkt export trending --out data/trending.json --format json --count 100
-tkt export hashtag aitools --out data/aitools.csv --format csv --count 100
-
-# Indie-hacker marketing intelligence
-tkt market "ai marketing tools" --count 50
-tkt market aitools --source hashtag --format json
+tkt trending                          # For You trending (US)
+tkt trending --region IN -n 30        # 30 trending in India
+tkt hashtag fyp                       # videos for #fyp
+tkt hashtag "buildinpublic" -n 50
+tkt user mrbeast                      # profile + latest videos
+tkt user-videos charlidamelio -n 20   # videos only
+tkt feed                              # your For You feed (requires login)
+tkt feed --following                  # following feed
 ```
 
-## Indie-hacker marketing intelligence
-
-Use `tkt market` when you do not just want trends. You want a decision.
-
-It analyzes TikTok videos for:
-
-- opportunity score from views, engagement, pain words, buyer intent, and repeatable hooks
-- decision: build now, create content and validate, watchlist, or ignore
-- top keywords, hashtags, and hook formats
-- content angles for founders and creators
-- product opportunities like lead magnets, micro-tools, and paid workflows
-- a simple validation plan that focuses on saves, comments, profile clicks, and waitlist joins
-
-Examples:
+## Search
 
 ```bash
-tkt market "solo founder CRM" --source search --count 30
-tkt market "aitools" --source hashtag --count 50
-tkt market "founder pain" --format json > market-report.json
+tkt search "cooking tips"
+tkt search "ai tools" -n 30 --json
 ```
 
-## Proxy support
+## View & Interact
 
-Use one proxy directly:
+After any listing command, use the row index (`#`) instead of a full video ID:
 
 ```bash
-tkt trending --proxy http://user:pass@host:port
+tkt trending
+tkt show 3                    # details + comments for result #3
+tkt open 3                    # open result #3 in browser
+tkt like 3                    # like result #3 (requires login)
+tkt save 3                    # save to favorites (requires login)
 ```
 
-Or create `~/.tkt/proxies.txt`; the CLI uses the first non-comment line when `--proxy` is not passed.
+Or pass a video ID or URL directly:
 
-## Known limitations
+```bash
+tkt show 7298765432109876543
+tkt open https://www.tiktok.com/@user/video/7298765432109876543
+```
 
-TikTok changes its web internals often and may return empty responses when a guest session is rate-limited or blocked. If that happens, `tkt` prints a warning instead of silently failing. Try `tkt login`, a fresh `ms_token`, a proxy, or a lower request count.
+## Export
 
-This CLI does not bypass TikTok restrictions. It uses user-provided browser auth and public/session-visible data.
+```bash
+tkt export trending -o data/trending.json
+tkt export trending -o data/trending.csv --format csv --region IN -n 100
+tkt export hashtag aitools -o data/aitools.json
+tkt export user mrbeast -o data/mrbeast.json
+tkt export search "solofounder" -o data/solofounder.json
+```
+
+## Market Intelligence
+
+`tkt market` turns raw trend data into an indie-hacker decision:
+
+```bash
+tkt market "ai marketing tools"
+tkt market aitools --source hashtag -n 50
+tkt market "solo founder CRM" --source search --json > report.json
+```
+
+Output: opportunity score, decision (build / validate / watchlist / ignore), top keywords, hashtags, hook formats, content angles, product opportunities, and a 4-step validation plan.
+
+## Output format
+
+All commands support `--json` for structured output:
+
+```bash
+tkt trending --json
+tkt search "fitness" --json | jq '.data[].author'
+```
+
+Envelope schema:
+
+```json
+{
+  "ok": true,
+  "schema_version": "1.0",
+  "data": [...]
+}
+```
+
+## Build
+
+```bash
+bun run build              # compile for current platform → ./tkt
+bun run build:all          # cross-compile mac-arm + mac-x64 + linux → dist/
+```
 
 ## Roadmap
 
-- Tiny disk cache for repeated fast-mode research.
-- Trend scoring: velocity, engagement ratio, freshness, repeated hooks.
-- Region-aware source tuning.
-- `instagram` adapter with the same CLI shape.
-- Markdown reports for content ideas.
+- `ig` / `--platform instagram` adapter — same CLI shape as `tkt market`, backed by Instaloader:
+  ```bash
+  tkt market "ai tools" --platform instagram --source hashtag
+  tkt compare "ai tools" --platforms tiktok,instagram
+  ig profile competitor --reels -n 30 --json
+  ig market "buildinpublic" --source hashtag -n 50
+  ```
+- Disk cache for repeated research runs
+- Trend velocity + freshness scoring
+- Markdown report export
+
+## Known limitations
+
+TikTok changes its web internals often. If a command returns empty results, try:
+1. `tkt login` — add your browser session cookies
+2. Lower `-n` count
+3. Retry after a few minutes (rate-limit jitter)
+
+This CLI uses user-provided browser auth and publicly visible data only. It does not bypass TikTok restrictions.
