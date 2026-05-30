@@ -67,11 +67,11 @@ download_binary() {
     local tmp_dir tmp_binary tmp_checksum
 
     tmp_dir=$(mktemp -d)
-    tmp_binary="${tmp_dir}/${BINARY_NAME}"
+    local tmp_asset="${tmp_dir}/${ASSET}"   # keep original name so sha256sum -c matches
     tmp_checksum="${tmp_dir}/${ASSET}.sha256"
 
     print_info "Downloading ${ASSET}..."
-    if ! curl -sL "$download_url" -o "$tmp_binary"; then
+    if ! curl -sL "$download_url" -o "$tmp_asset"; then
         print_error "Download failed"
         rm -rf "$tmp_dir"
         exit 1
@@ -79,34 +79,28 @@ download_binary() {
 
     print_info "Verifying checksum..."
     if curl -sL "$checksum_url" -o "$tmp_checksum" 2>/dev/null; then
-        cd "$tmp_dir"
-        if command -v sha256sum &>/dev/null; then
-            if sha256sum -c "$tmp_checksum" --status 2>/dev/null; then
-                print_success "Checksum verified"
-            else
-                print_error "Checksum mismatch — aborting"
-                rm -rf "$tmp_dir"; exit 1
-            fi
-        elif command -v shasum &>/dev/null; then
-            local expected actual
-            expected=$(awk '{print $1}' "$tmp_checksum" | tr '[:upper:]' '[:lower:]')
-            actual=$(shasum -a 256 "$tmp_binary" | awk '{print $1}' | tr '[:upper:]' '[:lower:]')
-            if [ "$expected" = "$actual" ]; then
-                print_success "Checksum verified"
-            else
-                print_error "Checksum mismatch — aborting"
-                rm -rf "$tmp_dir"; exit 1
-            fi
+        local expected actual
+        expected=$(awk '{print $1}' "$tmp_checksum" | tr '[:upper:]' '[:lower:]')
+        if command -v shasum &>/dev/null; then
+            actual=$(shasum -a 256 "$tmp_asset" | awk '{print $1}' | tr '[:upper:]' '[:lower:]')
+        elif command -v sha256sum &>/dev/null; then
+            actual=$(sha256sum "$tmp_asset" | awk '{print $1}' | tr '[:upper:]' '[:lower:]')
         else
             print_warning "No checksum tool found, skipping verification"
+            actual="$expected"
         fi
-        cd - >/dev/null
+        if [ "$expected" = "$actual" ]; then
+            print_success "Checksum verified"
+        else
+            print_error "Checksum mismatch — aborting"
+            rm -rf "$tmp_dir"; exit 1
+        fi
     else
         print_warning "Checksum file unavailable, skipping verification"
     fi
 
     mkdir -p "$INSTALL_DIR"
-    mv "$tmp_binary" "${INSTALL_DIR}/${BINARY_NAME}"
+    mv "$tmp_asset" "${INSTALL_DIR}/${BINARY_NAME}"
     chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
     rm -rf "$tmp_dir"
 
