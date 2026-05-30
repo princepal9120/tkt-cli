@@ -1,4 +1,4 @@
-import { CHROME_HEADERS, jitter } from "./fingerprint.js";
+import { CHROME_HEADERS, jitter, xBogus, UA } from "./fingerprint.js";
 import { ENDPOINTS, BASE_PARAMS } from "./endpoints.js";
 import type { VideoResult, UserProfile, Comment, VideoDetail } from "../models.js";
 import type { Credential } from "../models.js";
@@ -10,6 +10,9 @@ export class TikTokAuthError extends TikTokError {}
 function buildUrl(base: string, params: Record<string, string>): string {
   const u = new URL(base);
   for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
+  // X-Bogus signs the query string — required or TikTok returns empty itemList
+  const qs = u.search.slice(1);
+  u.searchParams.set("X-Bogus", xBogus(qs, UA));
   return u.toString();
 }
 
