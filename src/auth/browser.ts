@@ -3,11 +3,12 @@ import { homedir } from "os";
 import { join } from "path";
 import type { Credential } from "../models.js";
 
-// macOS Chrome/Firefox cookie paths for TikTok
-const CHROME_COOKIES_PATH = join(
-  homedir(),
-  "Library/Application Support/Google/Chrome/Default/Cookies"
-);
+// macOS browser cookie paths — Chrome, Brave, Firefox
+const CHROMIUM_PATHS = [
+  join(homedir(), "Library/Application Support/Google/Chrome/Default/Cookies"),
+  join(homedir(), "Library/Application Support/BraveSoftware/Brave-Browser/Default/Cookies"),
+  join(homedir(), "Library/Application Support/Microsoft Edge/Default/Cookies"),
+];
 const FIREFOX_PROFILE_DIR = join(homedir(), "Library/Application Support/Firefox/Profiles");
 
 const TIKTOK_COOKIES = ["msToken", "sessionid", "tt_webid_v2", "ttwid"];
@@ -38,25 +39,24 @@ async function readSqlite(dbPath: string, query: string): Promise<RawCookie[]> {
   }
 }
 
-async function extractChromeCookies(): Promise<Record<string, string>> {
-  if (!existsSync(CHROME_COOKIES_PATH)) return {};
-
-  try {
-    const rows = await readSqlite(
-      CHROME_COOKIES_PATH,
-      `SELECT name, value, host_key as host, encrypted_value FROM cookies WHERE host_key LIKE '%tiktok.com%'`
-    );
-
-    const result: Record<string, string> = {};
-    for (const row of rows) {
-      if (TIKTOK_COOKIES.includes(row.name) && row.value) {
-        result[row.name] = row.value;
+async function extractChromiumCookies(): Promise<Record<string, string>> {
+  for (const dbPath of CHROMIUM_PATHS) {
+    if (!existsSync(dbPath)) continue;
+    try {
+      const rows = await readSqlite(
+        dbPath,
+        `SELECT name, value, host_key as host, encrypted_value FROM cookies WHERE host_key LIKE '%tiktok.com%'`
+      );
+      const result: Record<string, string> = {};
+      for (const row of rows) {
+        if (TIKTOK_COOKIES.includes(row.name) && row.value) result[row.name] = row.value;
       }
+      if (result.msToken || result.sessionid) return result;
+    } catch {
+      continue;
     }
-    return result;
-  } catch {
-    return {};
   }
+  return {};
 }
 
 async function findFirefoxProfile(): Promise<string | null> {
@@ -96,8 +96,8 @@ async function extractFirefoxCookies(): Promise<Record<string, string>> {
 }
 
 export async function extractBrowserCredential(): Promise<Credential | null> {
-  // Try Chrome first, then Firefox
-  let cookies = await extractChromeCookies();
+  // Try Chrome/Brave/Edge first, then Firefox
+  let cookies = await extractChromiumCookies();
   let source: "browser" = "browser";
 
   if (!cookies.msToken && !cookies.sessionid) {
