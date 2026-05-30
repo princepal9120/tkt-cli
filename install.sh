@@ -141,6 +141,13 @@ main() {
     download_binary
     check_path
 
+    # Verify binary works after install
+    if "${INSTALL_DIR}/${BINARY_NAME}" --version &>/dev/null; then
+        local ver
+        ver=$("${INSTALL_DIR}/${BINARY_NAME}" --version 2>&1)
+        print_success "Binary verified: ${ver}"
+    fi
+
     echo ""
     echo -e "${GREEN}  ✅ Done! Run ${BLUE}tkt --help${GREEN} to get started.${NC}"
     echo ""
