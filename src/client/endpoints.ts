@@ -15,6 +15,12 @@ export const ENDPOINTS = {
   feed_foryou: `${API}/recommend/itemlist/`,
   feed_following: `${API}/follow/item_list/`,
   whoami: `${API}/user/detail/`,
+  comment_post: `${API}/commit/comment/publish/`,
+  follow_user: `${API}/commit/follow/user/`,
+  unfollow_user: `${API}/commit/follow/user/`,
+  following_list: `${API}/follow/list/`,
+  follower_list: `${API}/follower/list/`,
+  video_delete: `${API}/commit/video/delete/`,
 } as const;
 
 // Common query params required by TikTok API

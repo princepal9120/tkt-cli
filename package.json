@@ -1,10 +1,11 @@
 {
   "name": "tkt-cli",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "TikTok in your terminal — browse feeds, search, interact",
   "bin": { "tkt": "./src/index.ts" },
   "scripts": {
     "dev": "bun run src/index.ts",
+    "test": "bun test",
     "build": "bun build --compile --minify src/index.ts --outfile tkt",
     "build:mac-arm": "bun build --compile --minify --target=bun-darwin-arm64 src/index.ts --outfile dist/tkt-darwin-arm64",
     "build:mac-x64": "bun build --compile --minify --target=bun-darwin-x64 src/index.ts --outfile dist/tkt-darwin-x64",

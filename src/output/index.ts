@@ -90,6 +90,13 @@ export function printJson(data: unknown): void {
   console.log(JSON.stringify(data, null, 2));
 }
 
+// Standard machine-readable envelope. All --json command output goes through
+// this so AI-agent consumers get one consistent { ok, schema_version, data }
+// contract instead of per-command raw shapes.
+export function printEnvelope<T>(data: T): void {
+  console.log(JSON.stringify({ ok: true, schema_version: "1.0", data }, null, 2));
+}
+
 export function printError(msg: string): void {
   console.error(chalk.red(`✗ ${msg}`));
 }
@@ -104,4 +111,21 @@ export function printWarn(msg: string): void {
 
 export function printInfo(msg: string): void {
   console.log(chalk.grey(msg));
+}
+
+export function printCompact(items: unknown[]): void {
+  for (const item of items) {
+    console.log(JSON.stringify(item));
+  }
+}
+
+export function printTable(headers: string[], rows: string[][]): void {
+  const t = new Table({
+    head: headers.map((h) => chalk.cyan(h)),
+    style: { head: [], border: ["grey"] },
+  });
+  for (const row of rows) {
+    t.push(row);
+  }
+  console.log(t.toString());
 }

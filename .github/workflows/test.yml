@@ -20,5 +20,8 @@ jobs:
       - name: Type check
         run: bun tsc --noEmit
 
+      - name: Run tests
+        run: bun test
+
       - name: Verify CLI runs
         run: bun run src/index.ts --help

@@ -2,6 +2,8 @@ import { CHROME_HEADERS, jitter, xBogus, UA } from "./fingerprint.js";
 import { ENDPOINTS, BASE_PARAMS } from "./endpoints.js";
 import type { VideoResult, UserProfile, Comment, VideoDetail } from "../models.js";
 import type { Credential } from "../models.js";
+import type { FollowResult, CommentResult, PublishResult, AccountAnalytics, VideoAnalytics, CompetitorAnalysis } from "../models.js";
+import { computeAccountAnalytics, computeVideoAnalytics, computeCompetitorAnalysis } from "../metrics.js";
 
 export class TikTokError extends Error {}
 export class TikTokBlockedError extends TikTokError {}
@@ -55,6 +57,7 @@ function parseUser(data: Record<string, unknown>): UserProfile {
   return {
     id: String(user.id ?? ""),
     uniqueId: String(user.uniqueId ?? ""),
+    secUid: String(user.secUid ?? ""),
     nickname: String(user.nickname ?? ""),
     bio: String(user.signature ?? "") || undefined,
     followerCount: Number(stats.followerCount ?? 0),
@@ -97,6 +100,36 @@ export class TikTokClient {
     if (cookies) headers["Cookie"] = cookies;
 
     const res = await fetch(url, { headers });
+
+    if (res.status === 403 || res.status === 429) {
+      throw new TikTokBlockedError(`TikTok blocked request (HTTP ${res.status}). Try a proxy or wait.`);
+    }
+    if (res.status === 401) {
+      throw new TikTokAuthError("Not authenticated. Run: tkt login");
+    }
+    if (!res.ok) {
+      throw new TikTokError(`HTTP ${res.status} from TikTok`);
+    }
+
+    const text = await res.text();
+    try {
+      return JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      throw new TikTokError("TikTok returned non-JSON response (likely blocked)");
+    }
+  }
+
+  private async post(url: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+    await jitter(300);
+
+    const headers: Record<string, string> = {
+      ...CHROME_HEADERS,
+      "Content-Type": "application/json",
+    };
+    const cookies = cookieHeader(this.cred);
+    if (cookies) headers["Cookie"] = cookies;
+
+    const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
 
     if (res.status === 403 || res.status === 429) {
       throw new TikTokBlockedError(`TikTok blocked request (HTTP ${res.status}). Try a proxy or wait.`);
@@ -164,7 +197,7 @@ export class TikTokClient {
 
     const feedUrl = buildUrl(ENDPOINTS.user_feed, {
       ...BASE_PARAMS,
-      secUid: profile.id,
+      secUid: profile.secUid || profile.id,
       count: String(count),
       cursor: "0",
     });
@@ -261,5 +294,97 @@ export class TikTokClient {
       type: "1",
     });
     await this.get(url);
+  }
+
+  async postComment(videoId: string, text: string): Promise<CommentResult> {
+    if (!this.cred?.sessionid) throw new TikTokAuthError("Post comment requires login. Run: tkt login");
+    const url = buildUrl(ENDPOINTS.comment_post, { ...BASE_PARAMS });
+    const data = await this.post(url, { aweme_id: videoId, text, type: "1", ...BASE_PARAMS });
+    const comment = (data.comment ?? {}) as Record<string, unknown>;
+    return { id: String(comment.cid ?? comment.id ?? ""), text, videoId, success: true };
+  }
+
+  async replyComment(videoId: string, commentId: string, text: string): Promise<CommentResult> {
+    if (!this.cred?.sessionid) throw new TikTokAuthError("Reply comment requires login. Run: tkt login");
+    const url = buildUrl(ENDPOINTS.comment_post, { ...BASE_PARAMS });
+    const data = await this.post(url, { aweme_id: videoId, text, type: "2", reply_id: commentId, ...BASE_PARAMS });
+    const comment = (data.comment ?? {}) as Record<string, unknown>;
+    return { id: String(comment.cid ?? comment.id ?? ""), text, videoId, success: true };
+  }
+
+  async getComments(videoId: string, count = 20, cursor = 0): Promise<Comment[]> {
+    const url = buildUrl(ENDPOINTS.comment_list, {
+      ...BASE_PARAMS,
+      aweme_id: videoId,
+      count: String(count),
+      cursor: String(cursor),
+    });
+    const data = await this.get(url);
+    const rawComments = (data.comments ?? []) as Array<Record<string, unknown>>;
+    return rawComments.map(parseComment);
+  }
+
+  async followUser(userId: string): Promise<FollowResult> {
+    if (!this.cred?.sessionid) throw new TikTokAuthError("Follow requires login. Run: tkt login");
+    const url = buildUrl(ENDPOINTS.follow_user, { ...BASE_PARAMS });
+    await this.post(url, { user_id: userId, type: "1", ...BASE_PARAMS });
+    return { success: true, userId, username: "", action: "follow" };
+  }
+
+  async unfollowUser(userId: string): Promise<FollowResult> {
+    if (!this.cred?.sessionid) throw new TikTokAuthError("Unfollow requires login. Run: tkt login");
+    const url = buildUrl(ENDPOINTS.unfollow_user, { ...BASE_PARAMS });
+    await this.post(url, { user_id: userId, type: "0", ...BASE_PARAMS });
+    return { success: true, userId, username: "", action: "unfollow" };
+  }
+
+  async getFollowing(secUid: string, count = 20): Promise<UserProfile[]> {
+    if (!this.cred?.sessionid) throw new TikTokAuthError("Following list requires login. Run: tkt login");
+    const url = buildUrl(ENDPOINTS.following_list, {
+      ...BASE_PARAMS,
+      secUid,
+      count: String(count),
+    });
+    const data = await this.get(url);
+    const list = (data.followingList ?? []) as Array<Record<string, unknown>>;
+    return list.map(parseUser);
+  }
+
+  async getFollowers(secUid: string, count = 20): Promise<UserProfile[]> {
+    const url = buildUrl(ENDPOINTS.follower_list, {
+      ...BASE_PARAMS,
+      secUid,
+      count: String(count),
+    });
+    const data = await this.get(url);
+    const list = (data.followers ?? []) as Array<Record<string, unknown>>;
+    return list.map(parseUser);
+  }
+
+  async deleteVideo(videoId: string): Promise<void> {
+    if (!this.cred?.sessionid) throw new TikTokAuthError("Delete video requires login. Run: tkt login");
+    const url = buildUrl(ENDPOINTS.video_delete, { ...BASE_PARAMS });
+    await this.post(url, { aweme_id: videoId, ...BASE_PARAMS });
+  }
+
+  async getAccountAnalytics(username: string): Promise<AccountAnalytics> {
+    const { profile, videos } = await this.getUser(username, 50);
+    return computeAccountAnalytics(profile, videos);
+  }
+
+  async getVideoAnalytics(videoId: string): Promise<VideoAnalytics> {
+    const detail = await this.getVideoDetail(videoId);
+    return computeVideoAnalytics(detail);
+  }
+
+  async getCompetitorAnalysis(username: string, count = 30): Promise<CompetitorAnalysis> {
+    const { profile, videos } = await this.getUser(username, count);
+    return computeCompetitorAnalysis(profile, videos);
+  }
+
+  async uploadVideo(_filePath: string, _caption: string, _hashtags: string[]): Promise<PublishResult> {
+    throw new TikTokError(
+      "Video upload requires TikTok Developer API credentials. Web cookie auth does not support upload. Apply at developers.tiktok.com"
+    );
   }
 }
