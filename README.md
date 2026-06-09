@@ -1,13 +1,15 @@
 # tkt-cli
 
 [![CI](https://github.com/princepal9120/tkt-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/princepal9120/tkt-cli/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/princepal9120/tkt-cli)](https://github.com/princepal9120/tkt-cli/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 TikTok in your terminal — browse feeds, search, and analyze trends. Built with [Bun](https://bun.sh) as a **single binary** (no Node, no Python, no runtime needed).
 
-Same philosophy as `rdt-cli`, `twitter-cli`, and similar public CLIs:
 - one obvious binary: `tkt`
 - guest mode first — trending, hashtags, search, and user profiles work without login
+- automatic browser cookie extraction — `tkt login` reads Chrome/Brave/Firefox directly, no copy-pasting
+- no-browser fallback — paste a cookie string from DevTools if auto-extract can't run
 - structured exports for agents and automations
 - table output for humans, `--json` for pipelines
 - Chrome 133 fingerprint + X-Bogus signing + Gaussian jitter for real-world reliability
@@ -54,17 +56,49 @@ bun run build             # compile → ./tkt single binary
 
 ## Auth
 
-Most commands work without login. Login with your browser cookies for feeds, like, and save — and for better reliability on all commands.
+Most commands work without login. Run `tkt login` to automatically pull cookies from your browser — no DevTools, no copy-pasting.
 
 ```bash
-tkt login                    # auto-extract cookies from Chrome / Firefox
-tkt login --ms-token <val>   # or paste ms_token manually
-tkt status                   # check auth state
-tkt whoami                   # show your TikTok profile
+tkt login                                        # auto-extract from Chrome / Brave / Firefox
+tkt login --cookie "msToken=x; sessionid=y"      # paste full cookie string from DevTools
+tkt login --ms-token <val> --session-id <val>    # paste individual values
+tkt status                                       # check auth state
+tkt whoami                                       # show your TikTok profile
 tkt logout
 ```
 
-> **Why login helps:** TikTok validates `msToken` + `sessionid` cookies on every API call. Without them you're in guest mode — it works but rate limits kick in sooner. Run `tkt login` once after opening TikTok in your browser; cookies are stored in `~/.tkt/config.json`.
+### How `tkt login` works
+
+**Option 1 — automatic (recommended):** `tkt login` with no flags reads your browser's cookie database directly on disk, decrypts it, and saves the tokens. No DevTools needed.
+
+| Browser | macOS | Linux |
+|---|---|---|
+| Chrome | ✅ | ✅ |
+| Brave | ✅ | ✅ |
+| Edge | ✅ | — |
+| Firefox | ✅ | ✅ |
+
+On macOS, Chrome/Brave encrypt cookies with a key stored in your system Keychain. On first run you may see a macOS prompt: _"tkt wants to use your confidential information stored in 'Chrome Safe Storage' in your keychain."_ Click **Allow**. tkt only reads the key in memory — nothing is stored or sent.
+
+**Option 2 — paste cookie string (no browser on this machine):**
+
+1. Open [tiktok.com](https://www.tiktok.com) in any browser and log in
+2. Open DevTools (`F12`) → Network tab → click any request → Headers → copy the **Cookie** header value
+3. Run:
+   ```bash
+   tkt login --cookie "msToken=abc123...; sessionid=xyz..."
+   ```
+
+**Option 3 — paste individual values:**
+
+1. DevTools → Application → Cookies → tiktok.com
+2. Copy `msToken` and `sessionid` values separately
+3. Run:
+   ```bash
+   tkt login --ms-token <msToken value> --session-id <sessionid value>
+   ```
+
+> Credentials are stored in `~/.tkt/config.json`. Run `tkt login` again any time to refresh them.
 
 ## Browse
 
@@ -178,4 +212,3 @@ This CLI uses user-provided browser auth and publicly visible data. It does not 
 
 - Disk cache for repeated research runs
 - Trend velocity + freshness scoring
-

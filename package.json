@@ -1,6 +1,6 @@
 {
   "name": "tkt-cli",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "TikTok in your terminal — browse feeds, search, interact",
   "bin": { "tkt": "./src/index.ts" },
   "scripts": {

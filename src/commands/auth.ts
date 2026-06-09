@@ -6,15 +6,43 @@ import { printUserProfile, printSuccess, printError, printWarn, printInfo } from
 import { fmt } from "../output/format.js";
 import type { Credential } from "../models.js";
 
+function parseCookieString(raw: string): Partial<Credential> {
+  const result: Partial<Credential> = {};
+  for (const part of raw.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq === -1) continue;
+    const key = part.slice(0, eq).trim();
+    const value = part.slice(eq + 1).trim();
+    if (key === "msToken") result.msToken = value;
+    if (key === "sessionid") result.sessionid = value;
+  }
+  return result;
+}
+
 export function registerAuthCommands(program: Command): void {
   program
     .command("login")
-    .description("Extract TikTok cookies from browser or paste ms_token manually")
-    .option("--ms-token <token>", "Paste ms_token value directly")
+    .description("Extract TikTok cookies from browser, or paste them manually")
+    .option("--ms-token <token>", "Paste msToken cookie value")
     .option("--session-id <id>", "Paste sessionid cookie value")
+    .option("--cookie <string>", 'Paste full cookie string (e.g. "msToken=xxx; sessionid=yyy")')
     .option("--browser", "Force browser cookie extraction (default)", true)
-    .action(async (opts: { msToken?: string; sessionId?: string; browser: boolean }) => {
-      // Manual token input
+    .action(async (opts: { msToken?: string; sessionId?: string; cookie?: string; browser: boolean }) => {
+      // Full cookie string: parse it
+      if (opts.cookie) {
+        const parsed = parseCookieString(opts.cookie);
+        if (!parsed.msToken && !parsed.sessionid) {
+          printError("Cookie string must contain msToken and/or sessionid.");
+          printWarn('Example: tkt login --cookie "msToken=abc123; sessionid=xyz456"');
+          process.exit(1);
+        }
+        saveCredential({ ...parsed, source: "manual", savedAt: Date.now() });
+        const parts = [parsed.msToken && "msToken", parsed.sessionid && "sessionid"].filter(Boolean);
+        printSuccess(`Saved credentials (${parts.join(", ")}) → ~/.tkt/config.json`);
+        return;
+      }
+
+      // Individual token flags
       if (opts.msToken || opts.sessionId) {
         const cred: Credential = {
           msToken: opts.msToken,
@@ -27,7 +55,7 @@ export function registerAuthCommands(program: Command): void {
         return;
       }
 
-      // Browser extraction
+      // Auto browser extraction
       printInfo("Extracting TikTok cookies from browser...");
       const cred = await extractBrowserCredential();
 
@@ -38,13 +66,19 @@ export function registerAuthCommands(program: Command): void {
         if (cred.sessionid) parts.push("sessionid");
         printSuccess(`Saved credentials (${parts.join(", ")}) from browser → ~/.tkt/config.json`);
       } else {
-        printWarn("Could not auto-extract cookies from Chrome/Firefox.");
+        printWarn("Could not auto-extract cookies from Chrome/Brave/Firefox.");
         console.log("");
-        console.log("Manual steps:");
-        console.log("  1. Open https://www.tiktok.com in your browser");
-        console.log("  2. Open DevTools → Application → Cookies → tiktok.com");
-        console.log("  3. Copy the value of: msToken  and/or  sessionid");
-        console.log("  4. Run: tkt login --ms-token <value>");
+        console.log("Manual options:");
+        console.log("  Option A — paste full cookie string:");
+        console.log('    1. Open https://www.tiktok.com in your browser');
+        console.log('    2. Open DevTools (F12) → Network → any request → Headers → Cookie');
+        console.log('    3. Copy the Cookie header value');
+        console.log('    4. Run: tkt login --cookie "<paste here>"');
+        console.log("");
+        console.log("  Option B — paste individual values:");
+        console.log("    1. Open DevTools → Application → Cookies → tiktok.com");
+        console.log("    2. Copy msToken and sessionid values");
+        console.log("    3. Run: tkt login --ms-token <msToken> --session-id <sessionid>");
       }
     });
 
