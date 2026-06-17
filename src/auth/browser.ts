@@ -207,6 +207,8 @@ export async function extractBrowserCredential(): Promise<Credential | null> {
   return {
     msToken: cookies.msToken,
     sessionid: cookies.sessionid,
+    ttwid: cookies.ttwid,
+    tt_webid_v2: cookies.tt_webid_v2,
     source: "browser",
     savedAt: Date.now(),
   };

@@ -18,7 +18,12 @@ const program = new Command();
 program
   .name("tkt")
   .description("TikTok in your terminal 🎵 — browse feeds, search, interact")
-  .version("0.3.0")
+  .version("0.4.1")
+  .option("--proxy <url>", "Route requests through an HTTP/HTTPS proxy (or set TKT_PROXY). Use when TikTok is blocked in your region.")
+  .hook("preAction", (thisCommand) => {
+    const proxy = thisCommand.opts().proxy as string | undefined;
+    if (proxy) process.env.TKT_PROXY = proxy;
+  })
   .addHelpText("after", `
 Examples:
   tkt trending                     # Browse trending videos

@@ -45,6 +45,8 @@ export interface VideoDetail extends VideoResult {
 export interface Credential {
   msToken?: string;
   sessionid?: string;
+  ttwid?: string;
+  tt_webid_v2?: string;
   source: "browser" | "manual" | "unknown";
   savedAt: number;
   username?: string;

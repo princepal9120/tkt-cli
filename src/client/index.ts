@@ -12,10 +12,46 @@ export class TikTokAuthError extends TikTokError {}
 function buildUrl(base: string, params: Record<string, string>): string {
   const u = new URL(base);
   for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
-  // X-Bogus signs the query string — required or TikTok returns empty itemList
-  const qs = u.search.slice(1);
-  u.searchParams.set("X-Bogus", xBogus(qs, UA));
+  // X-Bogus signs the query string. NOTE: the current implementation is an
+  // approximation, not TikTok's real algorithm — a wrong signature can cause
+  // TikTok to reject the request, so it can be disabled for cookie-only testing.
+  if (process.env.TKT_NO_SIGN !== "1") {
+    const qs = u.search.slice(1);
+    u.searchParams.set("X-Bogus", xBogus(qs, UA));
+  }
   return u.toString();
+}
+
+// DNS-over-HTTPS resolver. ISPs in some countries (e.g. India) block TikTok with
+// a DNS sinkhole, so the system resolver returns a dead IP and every request times
+// out. Resolving the real IP via DoH (Cloudflare/Google — not blocked) and connecting
+// to it with the correct SNI bypasses the block with no VPN or proxy needed.
+const dohCache = new Map<string, { ip: string; expires: number }>();
+
+async function resolveDoh(host: string): Promise<string | null> {
+  const cached = dohCache.get(host);
+  if (cached && cached.expires > Date.now()) return cached.ip;
+  const providers = [
+    `https://1.1.1.1/dns-query?name=${host}&type=A`,
+    `https://dns.google/resolve?name=${host}&type=A`,
+  ];
+  for (const url of providers) {
+    try {
+      const r = await fetch(url, {
+        headers: { accept: "application/dns-json" },
+        signal: AbortSignal.timeout(8000),
+      });
+      const j = (await r.json()) as { Answer?: Array<{ type: number; data: string }> };
+      const a = (j.Answer ?? []).find((x) => x.type === 1 && /^[0-9.]+$/.test(x.data));
+      if (a?.data) {
+        dohCache.set(host, { ip: a.data, expires: Date.now() + 5 * 60_000 });
+        return a.data;
+      }
+    } catch {
+      // try next provider
+    }
+  }
+  return null;
 }
 
 function cookieHeader(cred?: Credential): string {
@@ -23,6 +59,10 @@ function cookieHeader(cred?: Credential): string {
   const parts: string[] = [];
   if (cred.msToken) parts.push(`msToken=${cred.msToken}`);
   if (cred.sessionid) parts.push(`sessionid=${cred.sessionid}`);
+  // ttwid / tt_webid_v2 are the device-identity cookies the web API checks for
+  // guest access — sending them materially improves the odds of a non-empty reply.
+  if (cred.ttwid) parts.push(`ttwid=${cred.ttwid}`);
+  if (cred.tt_webid_v2) parts.push(`tt_webid_v2=${cred.tt_webid_v2}`);
   return parts.join("; ");
 }
 
@@ -86,7 +126,71 @@ export class TikTokClient {
 
   constructor(cred?: Credential, proxy?: string) {
     this.cred = cred;
-    this.proxy = proxy;
+    this.proxy = proxy ?? process.env.TKT_PROXY ?? undefined;
+  }
+
+  // Single network entry point: applies the proxy (when set), a connect timeout,
+  // and turns low-level connection failures into an actionable message. Without
+  // the timeout a DNS-blocked host (e.g. TikTok in India) hangs for ~2 minutes.
+  private async fetchRaw(url: string, init: RequestInit): Promise<Response> {
+    // A TikTok API call always returns 200 JSON; a 3xx means the request was
+    // refused (geo-block / not signed). So we never follow redirects — we detect
+    // them and surface a precise reason instead of letting fetch chase a redirect
+    // back through blocked DNS (which would hang).
+    const opts: Record<string, unknown> = { ...init, redirect: "manual", signal: AbortSignal.timeout(20000) };
+    let target = url;
+
+    if (this.proxy) {
+      // A proxy resolves DNS remotely, so it already bypasses local DNS blocks.
+      opts.proxy = this.proxy;
+    } else if (process.env.TKT_NO_DOH !== "1") {
+      // No proxy: resolve via DoH and connect to the real IP, keeping SNI/Host
+      // as the original hostname. This bypasses ISP DNS sinkholes (the cheap kind
+      // of block). It does NOT change your source IP, so it cannot defeat an
+      // application-layer geo-block (e.g. TikTok refusing Indian IPs).
+      try {
+        const u = new URL(url);
+        const origHost = u.hostname;
+        const ip = await resolveDoh(origHost);
+        if (ip) {
+          u.hostname = ip;
+          target = u.toString();
+          opts.headers = { ...(init.headers as Record<string, string>), Host: origHost };
+          opts.tls = { serverName: origHost };
+        }
+      } catch {
+        // resolution failed — fall through to a direct fetch on the original URL
+      }
+    }
+
+    let res: Response;
+    try {
+      res = await fetch(target, opts as RequestInit);
+    } catch (e) {
+      const isTimeout = e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError");
+      const detail = isTimeout ? "connection timed out" : e instanceof Error ? e.message : String(e);
+      throw new TikTokBlockedError(
+        `Could not reach TikTok (${detail}). If TikTok is blocked in your country ` +
+          `(e.g. India), use a full-tunnel VPN or pass --proxy http://host:port ` +
+          `(set TKT_PROXY to make it permanent). A browser-only VPN does not cover the CLI.`,
+      );
+    }
+
+    // Geo-block: TikTok redirects requests from banned regions to a "/<cc>/about"
+    // page. DoH fixes DNS but cannot change the source IP that triggers this.
+    if (res.status >= 300 && res.status < 400) {
+      const loc = res.headers.get("location") ?? "";
+      if (/\/[a-z]{2}\/about/i.test(loc) || /\/about\b/i.test(loc)) {
+        throw new TikTokBlockedError(
+          `TikTok is geo-blocking your IP (redirected to ${loc || "its region page"}). ` +
+            `Your network reached TikTok, but TikTok refuses requests from your region ` +
+            `(e.g. India, where TikTok is banned). Route through a non-blocked exit IP: ` +
+            `a full-tunnel system VPN, or --proxy http://host:port with a foreign exit. ` +
+            `A browser-only VPN (e.g. Brave) does not cover the CLI.`,
+        );
+      }
+    }
+    return res;
   }
 
   private async get(url: string, extraHeaders: Record<string, string> = {}): Promise<Record<string, unknown>> {
@@ -99,7 +203,7 @@ export class TikTokClient {
     const cookies = cookieHeader(this.cred);
     if (cookies) headers["Cookie"] = cookies;
 
-    const res = await fetch(url, { headers });
+    const res = await this.fetchRaw(url, { headers });
 
     if (res.status === 403 || res.status === 429) {
       throw new TikTokBlockedError(`TikTok blocked request (HTTP ${res.status}). Try a proxy or wait.`);
@@ -129,7 +233,7 @@ export class TikTokClient {
     const cookies = cookieHeader(this.cred);
     if (cookies) headers["Cookie"] = cookies;
 
-    const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
+    const res = await this.fetchRaw(url, { method: "POST", headers, body: JSON.stringify(body) });
 
     if (res.status === 403 || res.status === 429) {
       throw new TikTokBlockedError(`TikTok blocked request (HTTP ${res.status}). Try a proxy or wait.`);

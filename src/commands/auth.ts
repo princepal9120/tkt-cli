@@ -15,6 +15,8 @@ function parseCookieString(raw: string): Partial<Credential> {
     const value = part.slice(eq + 1).trim();
     if (key === "msToken") result.msToken = value;
     if (key === "sessionid") result.sessionid = value;
+    if (key === "ttwid") result.ttwid = value;
+    if (key === "tt_webid_v2") result.tt_webid_v2 = value;
   }
   return result;
 }
@@ -37,7 +39,12 @@ export function registerAuthCommands(program: Command): void {
           process.exit(1);
         }
         saveCredential({ ...parsed, source: "manual", savedAt: Date.now() });
-        const parts = [parsed.msToken && "msToken", parsed.sessionid && "sessionid"].filter(Boolean);
+        const parts = [
+          parsed.msToken && "msToken",
+          parsed.sessionid && "sessionid",
+          parsed.ttwid && "ttwid",
+          parsed.tt_webid_v2 && "tt_webid_v2",
+        ].filter(Boolean);
         printSuccess(`Saved credentials (${parts.join(", ")}) → ~/.tkt/config.json`);
         return;
       }
@@ -64,6 +71,8 @@ export function registerAuthCommands(program: Command): void {
         const parts: string[] = [];
         if (cred.msToken) parts.push("msToken");
         if (cred.sessionid) parts.push("sessionid");
+        if (cred.ttwid) parts.push("ttwid");
+        if (cred.tt_webid_v2) parts.push("tt_webid_v2");
         printSuccess(`Saved credentials (${parts.join(", ")}) from browser → ~/.tkt/config.json`);
       } else {
         printWarn("Could not auto-extract cookies from Chrome/Brave/Firefox.");
